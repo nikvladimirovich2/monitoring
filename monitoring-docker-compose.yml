@@ -1,0 +1,174 @@
+version: '3.7'
+services:
+  prometheus:
+    image: prometheus:2.49.1
+    container_name: prometheus
+    user: "root"
+    volumes:
+            #  - ./prometheus:/prometheus
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+#      - ../swarm/grafana/config/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ../prometheus/web-config.yaml:/etc/prometheus/web-config.yaml:ro
+      - ../grafana/prometheus-data:/prometheus  
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.config.file=/etc/prometheus/web-config.yaml"
+      - "--storage.tsdb.retention.time=7d"  
+    ports:
+      - 9090:9090
+#
+  blackbox-exporter:
+    image: blackbox-exporter:v0.25.0
+    container_name: blackbox
+    ports:
+      - "9115:9115"
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: 10m
+#
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter
+    container_name: pg-exporter
+    environment:
+      # DATA_SOURCE_NAME="postgresql://postgres:password@localhost:5432/postgres?sslmode=disable"
+      - DATA_SOURCE_NAME=postgresql://postgres:postgres@10.177.176.224:5432/db_name?sslmode=disable
+      - PG_EXPORTER_EXTEND_QUERY_PATH=/etc/queries.yaml
+      - PG_EXPORTER_DISABLE_SETTINGS_METRICS=true
+      - PG_EXPORTER_DISABLE_DEFAULT_METRICS=false
+      - PG_EXPORTER_INCLUDE_DATABASES=db_name
+    ports:
+      - 9187:9187
+    volumes:
+      - ../postgres-exporter/queries.yaml:/etc/queries.yaml
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: 10m
+      
+  grafana:
+    image: grafana:10.3.1
+    container_name: grafana
+    user: "root"
+    ports:
+      - 3000:3000
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_RENDERING_SERVER_URL=http://grafana-image-renderer:8081/render
+      - GF_RENDERING_CALLBACK_URL=http://grafana:3000/
+      - GF_UNIFIED_ALERTING_SCREENSHOTS_CAPTURE=true
+      - GF_LOG_FILTERS="rendering:debug"
+#      - GF_INSTALL_PLUGINS=raintank-worldping-app
+    volumes:
+      #- ../grafana-storage/provisioning:/etc/grafana/provisioning
+      #- ../grafana-storage:/var/lib/grafana
+      #- ../grafana-storage/provisioning/dashboards:/var/lib/grafana/dashboards/
+      #- ../grafana-storage/grafana.ini:/etc/grafana/grafana.ini
+      - ../grafana-config:/etc/grafana
+      - ../grafana/grafana-data:/var/lib/grafana      
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: 10m
+#grafana ends
+  grafana-image-renderer:
+    image: grafana-image-renderer:3.9.0
+    container_name: grafana-image-renderer
+    environment:
+      - TZ=Europe/Moscow # change to your timezone
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: 10m
+#
+  node_exporter:
+    image: quay.io/prometheus/node-exporter:latest
+    container_name: node_exporter
+    command:
+      - '--path.rootfs=/host'
+#    network_mode: host
+#    pid: host
+    restart: unless-stopped
+    ports:
+      - 9188:9100
+    volumes:
+      - '/:/host:ro,rslave'
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: 10m
+#
+  pushgateway:
+    image: pushgateway:1.7.0
+    container_name: pushgateway
+    ports:
+      - 9091:9091
+    command:
+      - "--web.config.file=/etc/prometheus/web-config.yaml"  
+    volumes:
+      - ../pushgateway/web-config.yaml:/etc/prometheus/web-config.yaml:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: 10m
+#
+  loki:
+    image: loki:2.9.4
+    container_name: loki
+    user: "root"
+    ports:
+      - "3100:3100" #port closed because loki does not support basic auth
+    command: 
+      - "--config.file=/etc/loki/loki.yaml"
+    volumes:
+    #            # touch ../swarm/grafana/config/loki.yaml;
+    #                  # mkdir -p ../grafana/loki-data;
+      - ../loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - ../loki-data:/loki
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: 10m
+#
+  promtail:
+    image: promtail:2.9.4
+    container_name: promtail
+    volumes:
+      # touch ../swarm/grafana/config/promtail.yaml;
+      #       # mkdir -p ../grafana/promtail-data;
+      - ../promtail/promtail.yaml:/etc/promtail/promtail.yaml:ro
+      - ../promtail-data:/var/promtail
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/log:/var/log:ro
+    command:
+      - "--config.file=/etc/promtail/promtail.yaml"
+      - "--config.expand-env=true"      
+    environment:
+      - HOST_HOSTNAME=server-mntr.local
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: 10m
+#
+  victoria:
+    image: victoria-metrics:v1.101.0
+    container_name: victoria-metrics
+    ports:
+      - "8428:8428"
+    restart: unless-stopped
+    volumes:
+      - ../victoria:/victoria-metrics-data:z
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: 10m
